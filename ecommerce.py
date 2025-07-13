@@ -27,10 +27,56 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Load and merge datasets
+df_customers = pd.read_csv('customers.csv')
+df_items = pd.read_csv('order_items.csv')
+df_payments = pd.read_csv('order_payments.csv')
+df_reviews = pd.read_csv('order_reviews.csv')
+df_orders = pd.read_csv('orders.csv')
+df_category = pd.read_csv('category.csv')
+df_products = pd.read_csv('products.csv')
+df_sellers = pd.read_csv('sellers.csv')
+
+# Merging data
+df = pd.merge(df_orders, df_items, on='order_id', how='inner')
+df = pd.merge(df, df_products, on='product_id', how='left')
+df = pd.merge(df, df_customers, on='customer_id', how='left')
+df = pd.merge(df, df_reviews[['order_id','review_score']], on='order_id', how='left')
+df = pd.merge(df, df_sellers, on='seller_id', how='left')
+df = pd.merge(df, df_payments, on='order_id', how='left')
+df = pd.merge(df, df_category, on='product_category_name', how='left')
+df.drop('product_category_name', axis=1, inplace=True)
+
+# Data cleaning
+df.dropna(inplace=True)
+df.drop_duplicates(inplace=True)
+
+# Date columns conversion
+date_cols = ['order_purchase_timestamp', 'order_approved_at', 'order_delivered_carrier_date', 
+             'order_delivered_customer_date', 'order_estimated_delivery_date', 'shipping_limit_date']
+for i in date_cols:
+    df[i] = pd.to_datetime(df[i], errors='coerce')
+
+# Dropping unnecessary columns (removed geolocation-related columns)
+df.drop(['product_name_lenght', 'product_description_lenght', 'product_photos_qty', 'product_weight_g', 
+         'product_length_cm'], axis=1, inplace=True)
+
+# New feature engineering
+df['delivery_days'] = (df['order_delivered_customer_date'] - df['order_purchase_timestamp']).dt.days
+df['estimated_days'] = (df['order_estimated_delivery_date'] - df['order_purchase_timestamp']).dt.days
+df['order_month'] = df['order_purchase_timestamp'].dt.to_period('M')
+df['order_day'] = df['order_delivered_customer_date'].dt.to_period('D')
+df['delivery_delay'] = (df['order_delivered_customer_date'] - df['order_estimated_delivery_date']).dt.days
+df['total_order_value'] = df['price'] + df['freight_value']
+
+# Convert Period to string to make it JSON serializable
+df['order_month'] = df['order_month'].astype(str)
+df['order_day'] = df['order_day'].astype(str)
+
+# Now, proceed with Streamlit logic for KPI calculations, visualizations, etc.
 @st.cache_data
 def load_ecommerce_data():
     try:
-        df = pd.read_csv('ecommerce.csv')
         return df
     except FileNotFoundError:
         st.error("Please make sure 'ecommerce.csv' file is in the same directory as this script.")
@@ -74,6 +120,8 @@ def apply_filters(df):
         filtered_df = filtered_df[filtered_df['payment_type'] == selected_payment]
 
     return filtered_df
+
+
 
 def calculate_kpis(df):
     if len(df) == 0:
